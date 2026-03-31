@@ -51,10 +51,7 @@
 
 为了避免 AK/SK 泄露到 Shell 历史记录中，建议先创建一个配置文件 `deploy.conf`：
 
-ini
-
-
-
+```init
 AK=LTAI5txxxxxxxxxxxxxxxxxx
 
 SK=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -65,7 +62,8 @@ BACKEND=127.0.0.1:8080
 
 REGION=cn-hangzhou
 
-\# FRONTEND=/var/www/html/dist  # 如果是前后端分离，取消注释并填写前端目录
+# FRONTEND=/var/www/html/dist  # 如果是前后端分离，取消注释并填写前端目录
+```
 
 
 
