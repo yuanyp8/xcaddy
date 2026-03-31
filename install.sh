@@ -260,7 +260,8 @@ do_install() {
     log "[1/6] 停止旧服务并备份配置..."
     systemctl stop ${SERVICE_NAME} 2>/dev/null || true
     if [ -d "${CONF_DIR}" ]; then
-        BACKUP_DIR="${CONF_DIR}/backup_$(date +%Y%m%d_%H%M%S)"
+        # 将旧配置移动到 /etc/ 目录的外面，避免 "移动到自身子目录" 的报错
+        BACKUP_DIR="/etc/caddy_backup_$(date +%Y%m%d_%H%M%S)"
         echo -e "${YELLOW}检测到旧配置，正在备份至 ${BACKUP_DIR} ...${NC}"
         mv "${CONF_DIR}" "${BACKUP_DIR}"
     fi
