@@ -44,6 +44,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarm || '' }}
+          PATH: ${{ env.PATH }}:$HOME/go/bin          
           CGO_ENABLED: 0
         run: |
           go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
