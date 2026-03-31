@@ -1,0 +1,6 @@
+.payload-build/
+payload.tar.gz
+caddy
+caddy-*.run
+caddy-*.run.sha256
+manifest.txt

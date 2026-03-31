@@ -1,13 +1,5 @@
-# ============================================================
-# 工作流名称：构建集成阿里云 DNS 插件的 Caddy 多架构二进制
-# ============================================================
 name: Build Caddy with AliDNS
 
-# ------------------------------------------------------------
-# 触发条件（两种方式任选其一）
-# 方式一：推送 v 开头的 tag 时自动触发，并发布 Release
-# 方式二：在 GitHub 网页手动触发，产物从 Artifacts 下载
-# ------------------------------------------------------------
 on:
   push:
     tags:
@@ -15,236 +7,85 @@ on:
   workflow_dispatch:
     inputs:
       caddy_version:
-        description: 'Caddy 官方版本号（必须带 v 前缀）'
+        description: 'Caddy version'
         required: true
         default: 'v2.11.2'
         type: string
 
-# ============================================================
-# Job 1：构建多架构二进制
-# 使用 GitHub 提供的 ubuntu-latest（AMD64 机器）进行交叉编译
-# ============================================================
 jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
-      # fail-fast: false 表示某个架构失败不影响其他架构继续构建
       fail-fast: false
       matrix:
-        include:
-          # ---- Linux 平台 ----
-          - goos: linux
-            goarch: amd64
-            # 说明: 最常见的服务器架构（x86_64）
-          - goos: linux
-            goarch: arm64
-            # 说明: ARM64 服务器（树莓派5、阿里云ARM、AWS Graviton、苹果云）
-          # - goos: linux
-          #   goarch: arm
-          #   goarm: "7"
-          #   # 说明: 32位 ARMv7（树莓派3/4 32位系统、旧安卓终端）
-          # # ---- macOS 平台 ----
-          # - goos: darwin
-          #   goarch: amd64
-          #   # 说明: Intel 芯片 Mac
-          # - goos: darwin
-          #   goarch: arm64
-          #   # 说明: Apple Silicon（M1/M2/M3/M4 芯片 Mac）
-          # # ---- Windows 平台 ----
-          # - goos: windows
-          #   goarch: amd64
-          #   ext: .exe
-            # 说明: Windows x86_64
+        arch: [amd64, arm64]
 
     steps:
-      # ----------------------------------------------------------
-      # 步骤 1：安装 Go 语言环境
-      # GitHub 官方 action，会自动配置 GOPATH 并缓存
-      # ----------------------------------------------------------
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
-      # ----------------------------------------------------------
-      # 步骤 2：安装 xcaddy 构建工具
-      # ⚠️ 重要：此步骤不能设置 GOOS/GOARCH
-      # 必须让 xcaddy 编译为 runner 本机的 AMD64 格式，才能在 runner 上运行
-      # ----------------------------------------------------------
       - name: Install xcaddy
         run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
-      # ----------------------------------------------------------
-      # 步骤 3：交叉编译 Caddy
-      # 通过 GOOS/GOARCH/GOARM 环境变量控制目标平台
-      # CGO_ENABLED=0 禁用 CGO，生成纯静态链接的二进制，兼容性最好
-      # xcaddy 会自动下载对应版本的 Caddy 源码并编译
-      # --with 参数指定要集成的插件
-      # ----------------------------------------------------------
-      - name: Build Caddy
+      - name: Build Caddy binary
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          GOARM: ${{ matrix.goarm || '' }}
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
+          CADDY_VERSION: ${{ github.event.inputs.caddy_version || 'v2.11.2' }}
         run: |
-          xcaddy build ${{ github.event.inputs.caddy_version || 'v2.11.2' }} --with github.com/caddy-dns/alidns
-          mv caddy${{ matrix.ext }} caddy-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          xcaddy build "${CADDY_VERSION}" --with github.com/caddy-dns/alidns
+          mv caddy "caddy-linux-${{ matrix.arch }}"
 
-      # ----------------------------------------------------------
-      # 步骤 4：验证构建产物
-      # ⚠️ 不能直接运行交叉编译的二进制（会报 Exec format error）
-      # 使用 file 命令检查文件格式，对所有架构都安全
-      # 只在目标架构与 runner 相同（linux/amd64）时才运行版本检查
-      # ----------------------------------------------------------
-      - name: Verify build
+      - name: Verify module list
+        if: matrix.arch == 'amd64'
         run: |
-          echo "=== 文件信息 ==="
-          file caddy-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          ./caddy-linux-amd64 version
+          ./caddy-linux-amd64 list-modules | grep -x 'dns.providers.alidns'
 
-          if [ "${{ matrix.goos }}" = "linux" ] && [ "${{ matrix.goarch }}" = "amd64" ]; then
-            echo ""
-            echo "=== 版本信息（仅 linux/amd64 可运行） ==="
-            ./caddy-linux-amd64 version
-            echo ""
-            echo "=== 插件列表 ==="
-            ./caddy-linux-amd64 list-modules | grep -i ali
-          else
-            echo ""
-            echo "跳过运行测试（目标架构 ${{ matrix.goos }}/${{ matrix.goarch }} 与 runner 不匹配）"
-          fi
-
-      # ----------------------------------------------------------
-      # 步骤 5：上传构建产物
-      # 产物保留 30 天，可在 Actions 页面的 Artifacts 区域下载
-      # ----------------------------------------------------------
-      - name: Upload artifact
+      - name: Upload raw binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: caddy-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: caddy-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          name: caddy-linux-${{ matrix.arch }}
+          path: caddy-linux-${{ matrix.arch }}
           retention-days: 30
 
-  # ============================================================
-  # Job 2：创建 GitHub Release（仅 Tag 触发时执行）
-  # 将所有架构的二进制打包发布到 Releases 页面
-  # ============================================================
-  # release:
-  #   needs: build
-  #   runs-on: ubuntu-latest
-  #   # 修改条件：推送 tag 时运行，或者手动触发且填写了 tag 时运行
-  #   if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-  #   permissions:
-  #     # 需要写权限才能创建 Release
-  #     contents: write
-
-  #   steps:
-  #     # ----------------------------------------------------------
-  #     # 步骤 1：下载所有构建产物到 assets 目录
-  #     # merge-multiple: true 会把所有 artifact 解压到同一目录
-  #     # ----------------------------------------------------------
-  #     - name: Download all artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         path: assets
-  #         merge-multiple: true
-
-  #     # ----------------------------------------------------------
-  #     # 步骤 2：生成 SHA256 校验和文件
-  #     # 用户下载后可用此文件验证文件完整性
-  #     # ----------------------------------------------------------
-  #     - name: Generate checksums
-  #       working-directory: assets
-  #       run: sha256sum * > checksums.txt
-
-  #     # ----------------------------------------------------------
-  #     # 步骤 3：列出所有待发布文件（方便调试）
-  #     # ----------------------------------------------------------
-  #     - name: List release files
-  #       run: ls -lh assets/
-
-  #     # ----------------------------------------------------------
-  #     # 步骤 4：创建 GitHub Release
-  #     # 自动生成 Release 标题和说明
-  #     # 附带所有二进制文件和校验和文件
-  #     # ----------------------------------------------------------
-  #     - name: Create Release
-  #       uses: softprops/action-gh-release@v2
-  #       with:
-  #         name: "Caddy + AliDNS ${{ github.ref_name }}"
-  #         body: |
-  #           Caddy ${{ github.event.inputs.caddy_version || 'v2.11.2' }} with AliDNS plugin.
-            
-  #           ## Usage
-  #           ```
-  #           {
-  #               dns alidns {
-  #                   access_key_id YOUR_KEY
-  #                   access_key_secret YOUR_SECRET
-  #                   region_id cn-hangzhou
-  #               }
-  #           }
-  #           example.com {
-  #               tls { dns alidns }
-  #               respond "OK"
-  #           }
-  #           ```
-  #         files: assets/*
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ============================================================
-  # Job 3：打包生产级 .run 离线安装包 (支持双架构)
-  # ============================================================
   package-run:
     needs: build
     runs-on: ubuntu-latest
-    if: always() && needs.build.result == 'success'
-    permissions:
-      contents: write                    # 创建 Release 所需权限    
+    if: ${{ needs.build.result == 'success' }}
     strategy:
-      fail-fast: false      
+      fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-          - arch: arm64
+        arch: [amd64, arm64]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download linux artifact
+      - name: Download compiled binary
         uses: actions/download-artifact@v4
         with:
           name: caddy-linux-${{ matrix.arch }}
-          path: ./pack_temp
+          path: .
 
-      - name: Prepare build environment
-        run: |
-          # 下载下来的文件名是 caddy-linux-amd64，需要重命名为 caddy
-          mv ./pack_temp/caddy-linux-${{ matrix.arch }} ./caddy
+      - name: Prepare workspace
+        run: mv "caddy-linux-${{ matrix.arch }}" caddy
 
-      - name: Build .run installer
-        run: |
-          # 直接调用你刚才写的打包脚本，传入架构参数
-          bash build.sh ${{ matrix.arch }}
+      - name: Build offline installer
+        run: bash build.sh --arch "${{ matrix.arch }}"
 
-      - name: Generate SHA256
-        run: sha256sum caddy-alidns-linux-${{ matrix.arch }}.run > checksums-${{ matrix.arch }}.txt
-
-      # 只上传为 Artifact，交给下一个 Job 统一处理
       - name: Upload .run artifact
         uses: actions/upload-artifact@v4
         with:
           name: caddy-offline-run-${{ matrix.arch }}
           path: |
             caddy-alidns-linux-${{ matrix.arch }}.run
-            checksums-${{ matrix.arch }}.txt
+            caddy-alidns-linux-${{ matrix.arch }}.run.sha256
           retention-days: 30
-  # ============================================================
-  # Job 4：统一发布 GitHub Release
-  # 无 matrix，单实例运行，避免并发冲突导致 403
-  # ============================================================
+
   release:
     needs: package-run
     runs-on: ubuntu-latest
@@ -253,33 +94,35 @@ jobs:
       contents: write
 
     steps:
-      # 下载上面打包好的所有 .run 文件
       - name: Download all .run artifacts
         uses: actions/download-artifact@v4
         with:
           path: assets
-          # 使用通配符匹配 caddy-offline-run- 开头的 artifact
           pattern: caddy-offline-run-*
           merge-multiple: true
 
       - name: List release files
         run: ls -lh assets/
 
-      - name: Create Release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           name: "Caddy + AliDNS ${{ github.ref_name }}"
           body: |
-            Caddy ${{ github.event.inputs.caddy_version || 'v2.11.2' }} 集成阿里云 DNS 插件的生产级一键离线安装包。
-            
-            ### 下载指南
-            - **常规服务器 (x86_64)**：请下载 `caddy-alidns-linux-amd64.run`
-            - **ARM服务器 (鲲鹏/苹果云)**：请下载 `caddy-alidns-linux-arm64.run`
-            
-            ### 一键安装命令 (AMD64为例)
+            Offline Caddy installers with AliDNS support.
+
+            Files:
+            - `caddy-alidns-linux-amd64.run`
+            - `caddy-alidns-linux-arm64.run`
+
+            Example:
             ```bash
             chmod +x caddy-alidns-linux-amd64.run
-            sudo ./caddy-alidns-linux-amd64.run --ak YOUR_AK --sk YOUR_SK --domain example.com --backend 127.0.0.1:8080
+            sudo ./caddy-alidns-linux-amd64.run install \
+              --ak YOUR_AK \
+              --sk YOUR_SK \
+              --listen image.example.com \
+              --backend 127.0.0.1:8080
             ```
           files: assets/*
         env:
