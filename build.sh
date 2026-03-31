@@ -28,9 +28,9 @@ chmod +x "${INSTALLER_NAME}"
 # 清理中间文件
 rm -f "${PAYLOAD_FILE}"
 
-separator
+echo "=========================================="
 echo "Build completed"
 echo "Installer: ${INSTALLER_NAME}"
 echo "Size: $(du -h "${INSTALLER_NAME}" | cut -f1)"
 echo "SHA256: $(sha256sum "${INSTALLER_NAME}" | cut -d' ' -f1)"
-separator
+echo "=========================================="
