@@ -426,12 +426,22 @@ EOF
 import sites-enabled/*
 EOF
 
-    # 锁定配置文件权限 (AK/SK 在里面)
-    chown -R root:root "${CONF_DIR}"
-    chmod 600 "${CONF_DIR}/Caddyfile"
-    chmod 644 "${SNIPPETS_DIR}"/*.conf "${SITES_AVAIL_DIR}"/*.conf
+    # 精细化配置文件权限分配 (适配 systemd ProtectSystem=strict)
+    
+    # 1. Caddyfile 含有 AK/SK，只允许 root 用户和 caddy 用户组读取 (640)
+    chown root:caddy "${CONF_DIR} -R"
+    chmod 755 "${CONF_DIR}/Caddyfile"
+    
+    # 2. snippets 和 sites 目录，赋予 caddy 用户组读和进入权限 (750)
+    chown -R root:caddy "${SNIPPETS_DIR}" "${SITES_AVAIL_DIR}" "${SITES_ENABLED_DIR}"
+    chmod -R 750 "${SNIPPETS_DIR}" "${SITES_AVAIL_DIR}" "${SITES_ENABLED_DIR}"
+    
+    # 3. 中间件和业务配置文件本身，允许所有人读 (644)
+    chmod 644 "${SNIPPETS_DIR}"/*.conf 2>/dev/null || true
+    chmod 644 "${SITES_AVAIL_DIR}"/*.conf 2>/dev/null || true
 
     echo -e "${GREEN}[6/6] 启动服务并设置开机自启...${NC}"
+    systemctl daemon-reload
     systemctl enable ${SERVICE_NAME} >/dev/null 2>&1
     systemctl restart ${SERVICE_NAME}
 }
