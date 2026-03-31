@@ -39,21 +39,21 @@ jobs:
           - goos: linux
             goarch: arm64
             # 说明: ARM64 服务器（树莓派5、阿里云ARM、AWS Graviton、苹果云）
-          - goos: linux
-            goarch: arm
-            goarm: "7"
-            # 说明: 32位 ARMv7（树莓派3/4 32位系统、旧安卓终端）
-          # ---- macOS 平台 ----
-          - goos: darwin
-            goarch: amd64
-            # 说明: Intel 芯片 Mac
-          - goos: darwin
-            goarch: arm64
-            # 说明: Apple Silicon（M1/M2/M3/M4 芯片 Mac）
-          # ---- Windows 平台 ----
-          - goos: windows
-            goarch: amd64
-            ext: .exe
+          # - goos: linux
+          #   goarch: arm
+          #   goarm: "7"
+          #   # 说明: 32位 ARMv7（树莓派3/4 32位系统、旧安卓终端）
+          # # ---- macOS 平台 ----
+          # - goos: darwin
+          #   goarch: amd64
+          #   # 说明: Intel 芯片 Mac
+          # - goos: darwin
+          #   goarch: arm64
+          #   # 说明: Apple Silicon（M1/M2/M3/M4 芯片 Mac）
+          # # ---- Windows 平台 ----
+          # - goos: windows
+          #   goarch: amd64
+          #   ext: .exe
             # 说明: Windows x86_64
 
     steps:
@@ -129,66 +129,152 @@ jobs:
   # Job 2：创建 GitHub Release（仅 Tag 触发时执行）
   # 将所有架构的二进制打包发布到 Releases 页面
   # ============================================================
-  release:
+  # release:
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   # 修改条件：推送 tag 时运行，或者手动触发且填写了 tag 时运行
+  #   if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+  #   permissions:
+  #     # 需要写权限才能创建 Release
+  #     contents: write
+
+  #   steps:
+  #     # ----------------------------------------------------------
+  #     # 步骤 1：下载所有构建产物到 assets 目录
+  #     # merge-multiple: true 会把所有 artifact 解压到同一目录
+  #     # ----------------------------------------------------------
+  #     - name: Download all artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         path: assets
+  #         merge-multiple: true
+
+  #     # ----------------------------------------------------------
+  #     # 步骤 2：生成 SHA256 校验和文件
+  #     # 用户下载后可用此文件验证文件完整性
+  #     # ----------------------------------------------------------
+  #     - name: Generate checksums
+  #       working-directory: assets
+  #       run: sha256sum * > checksums.txt
+
+  #     # ----------------------------------------------------------
+  #     # 步骤 3：列出所有待发布文件（方便调试）
+  #     # ----------------------------------------------------------
+  #     - name: List release files
+  #       run: ls -lh assets/
+
+  #     # ----------------------------------------------------------
+  #     # 步骤 4：创建 GitHub Release
+  #     # 自动生成 Release 标题和说明
+  #     # 附带所有二进制文件和校验和文件
+  #     # ----------------------------------------------------------
+  #     - name: Create Release
+  #       uses: softprops/action-gh-release@v2
+  #       with:
+  #         name: "Caddy + AliDNS ${{ github.ref_name }}"
+  #         body: |
+  #           Caddy ${{ github.event.inputs.caddy_version || 'v2.11.2' }} with AliDNS plugin.
+            
+  #           ## Usage
+  #           ```
+  #           {
+  #               dns alidns {
+  #                   access_key_id YOUR_KEY
+  #                   access_key_secret YOUR_SECRET
+  #                   region_id cn-hangzhou
+  #               }
+  #           }
+  #           example.com {
+  #               tls { dns alidns }
+  #               respond "OK"
+  #           }
+  #           ```
+  #         files: assets/*
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================
+  # Job 3：打包生产级 .run 离线安装包 (支持双架构)
+  # ============================================================
+  package-run:
     needs: build
     runs-on: ubuntu-latest
-    # 只有推送 v 开头的 tag 时才执行此 job
-    if: startsWith(github.ref, 'refs/tags/')
-    permissions:
-      # 需要写权限才能创建 Release
-      contents: write
+    if: always() && needs.build.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+          - arch: arm64
 
     steps:
-      # ----------------------------------------------------------
-      # 步骤 1：下载所有构建产物到 assets 目录
-      # merge-multiple: true 会把所有 artifact 解压到同一目录
-      # ----------------------------------------------------------
-      - name: Download all artifacts
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download linux artifact
         uses: actions/download-artifact@v4
         with:
-          path: assets
-          merge-multiple: true
+          name: caddy-linux-${{ matrix.arch }}
+          path: ./pack_temp/caddy
 
-      # ----------------------------------------------------------
-      # 步骤 2：生成 SHA256 校验和文件
-      # 用户下载后可用此文件验证文件完整性
-      # ----------------------------------------------------------
-      - name: Generate checksums
-        working-directory: assets
-        run: sha256sum * > checksums.txt
+      - name: Prepare package directory
+        run: |
+          mkdir -p package_content
+          mv ./pack_temp/caddy package_content/caddy
+          cp caddy.service package_content/
+          cp install.sh package_content/
+          chmod +x package_content/install.sh package_content/caddy
+          
+          # 验证一下打包进去的二进制架构是对的
+          echo "=== 待打包的二进制架构 ==="
+          file package_content/caddy
 
-      # ----------------------------------------------------------
-      # 步骤 3：列出所有待发布文件（方便调试）
-      # ----------------------------------------------------------
-      - name: List release files
-        run: ls -lh assets/
+      - name: Install makeself
+        run: sudo apt-get update && sudo apt-get install -y makeself
 
-      # ----------------------------------------------------------
-      # 步骤 4：创建 GitHub Release
-      # 自动生成 Release 标题和说明
-      # 附带所有二进制文件和校验和文件
-      # ----------------------------------------------------------
-      - name: Create Release
+      - name: Build .run installer
+        run: |
+          # 文件名带上架构标识，防止下载时搞混
+          makeself --notemp \
+            --sha256 \
+            --keep-umask \
+            package_content/ \
+            "caddy-alidns-linux-${{ matrix.arch }}.run" \
+            "Caddy with AliDNS (${{ matrix.arch }}) Installer" \
+            ./install.sh "$@"
+
+      - name: Generate SHA256
+        run: sha256sum caddy-alidns-linux-${{ matrix.arch }}.run > checksums-${{ matrix.arch }}.txt
+
+      - name: Upload .run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: caddy-offline-run-${{ matrix.arch }}
+          path: |
+            caddy-alidns-linux-${{ matrix.arch }}.run
+            checksums-${{ matrix.arch }}.txt
+          retention-days: 30
+
+      # 打 Tag 时自动发到 Release，不再附带裸二进制文件
+      - name: Upload to Release (if tag)
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: "Caddy + AliDNS ${{ github.ref_name }}"
           body: |
-            Caddy ${{ github.event.inputs.caddy_version || 'v2.11.2' }} with AliDNS plugin.
+            Caddy ${{ github.event.inputs.caddy_version || 'v2.11.2' }} 集成阿里云 DNS 插件的生产级一键离线安装包。
             
-            ## Usage
+            ### 下载指南
+            - **常规服务器 (x86_64)**：请下载 `caddy-alidns-linux-amd64.run`
+            - **ARM服务器 (鲲鹏/苹果云)**：请下载 `caddy-alidns-linux-arm64.run`
+            
+            ### 一键安装命令 (AMD64为例)
+            ```bash
+            chmod +x caddy-alidns-linux-amd64.run
+            sudo ./caddy-alidns-linux-amd64.run --ak YOUR_AK --sk YOUR_SK --domain example.com --backend 127.0.0.1:8080
             ```
-            {
-                dns alidns {
-                    access_key_id YOUR_KEY
-                    access_key_secret YOUR_SECRET
-                    region_id cn-hangzhou
-                }
-            }
-            example.com {
-                tls { dns alidns }
-                respond "OK"
-            }
-            ```
-          files: assets/*
+          files: |
+            caddy-alidns-linux-${{ matrix.arch }}.run
+            checksums-${{ matrix.arch }}.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
