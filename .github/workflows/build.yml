@@ -221,23 +221,13 @@ jobs:
 
       - name: Prepare build environment
         run: |
-          # 把下载的二进制重命名为 caddy，并拉取仓库里的配置文件到同一目录
-          mv ./pack_temp/caddy ./caddy
-          # caddy.service 和 install.sh、build.sh 已经通过 checkout 拉到当前目录了
-
-      - name: Install makeself
-        run: sudo apt-get update && sudo apt-get install -y makeself
+          # 下载下来的文件名是 caddy-linux-amd64，需要重命名为 caddy
+          mv ./pack_temp/caddy-linux-${{ matrix.arch }} ./caddy
 
       - name: Build .run installer
         run: |
-          # 文件名带上架构标识，防止下载时搞混
-          makeself --notemp \
-            --sha256 \
-            --keep-umask \
-            package_content/ \
-            "caddy-alidns-linux-${{ matrix.arch }}.run" \
-            "Caddy with AliDNS (${{ matrix.arch }}) Installer" \
-            ./install.sh "$@"
+          # 直接调用你刚才写的打包脚本，传入架构参数
+          bash build.sh ${{ matrix.arch }}
 
       - name: Generate SHA256
         run: sha256sum caddy-alidns-linux-${{ matrix.arch }}.run > checksums-${{ matrix.arch }}.txt
