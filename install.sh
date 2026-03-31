@@ -373,7 +373,7 @@ write_main_caddyfile() {
 
     {
         printf '{\n'
-        printf '    admin {$CADDY_ADMIN_ADDR}\n'
+        printf '    admin %s\n' "${ADMIN_ADDR}"
         printf '    storage file_system {\n'
         printf '        root %s\n' "${DATA_DIR}"
         printf '    }\n'
@@ -388,7 +388,7 @@ write_main_caddyfile() {
             printf '    }\n'
         fi
         if [[ -n "${EMAIL}" ]]; then
-            printf '    email {$ACME_EMAIL}\n'
+            printf '    email %s\n' "${EMAIL}"
         fi
         if [[ "${ENABLE_METRICS}" -eq 1 ]]; then
             printf '    metrics\n'
