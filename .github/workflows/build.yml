@@ -248,6 +248,7 @@ jobs:
       - name: Generate SHA256
         run: sha256sum caddy-alidns-linux-${{ matrix.arch }}.run > checksums-${{ matrix.arch }}.txt
 
+      # 只上传为 Artifact，交给下一个 Job 统一处理
       - name: Upload .run artifact
         uses: actions/upload-artifact@v4
         with:
@@ -256,10 +257,31 @@ jobs:
             caddy-alidns-linux-${{ matrix.arch }}.run
             checksums-${{ matrix.arch }}.txt
           retention-days: 30
+  # ============================================================
+  # Job 4：统一发布 GitHub Release
+  # 无 matrix，单实例运行，避免并发冲突导致 403
+  # ============================================================
+  release:
+    needs: package-run
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
 
-      # 打 Tag 时自动发到 Release，不再附带裸二进制文件
-      - name: Upload to Release (if tag)
-        if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      # 下载上面打包好的所有 .run 文件
+      - name: Download all .run artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: assets
+          # 使用通配符匹配 caddy-offline-run- 开头的 artifact
+          pattern: caddy-offline-run-*
+          merge-multiple: true
+
+      - name: List release files
+        run: ls -lh assets/
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           name: "Caddy + AliDNS ${{ github.ref_name }}"
@@ -275,8 +297,6 @@ jobs:
             chmod +x caddy-alidns-linux-amd64.run
             sudo ./caddy-alidns-linux-amd64.run --ak YOUR_AK --sk YOUR_SK --domain example.com --backend 127.0.0.1:8080
             ```
-          files: |
-            caddy-alidns-linux-${{ matrix.arch }}.run
-            checksums-${{ matrix.arch }}.txt
+          files: assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
