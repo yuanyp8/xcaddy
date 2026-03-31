@@ -1,4 +1,3 @@
-
 name: Build Caddy with AliDNS
 
 on:
@@ -39,17 +38,17 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: Build
+      - name: Install xcaddy
+        run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+
+      - name: Build Caddy
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarm || '' }}
-          PATH: ${{ env.PATH }}:$HOME/go/bin          
           CGO_ENABLED: 0
         run: |
-          go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-          xcaddy build ${{ github.event.inputs.caddy_version || 'v2.11.2' }} \
-            --with github.com/caddy-dns/alidns
+          xcaddy build ${{ github.event.inputs.caddy_version || 'v2.11.2' }} --with github.com/caddy-dns/alidns
           mv caddy${{ matrix.ext }} caddy-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
       - name: Show version
@@ -75,33 +74,13 @@ jobs:
         with:
           path: assets
           merge-multiple: true
-      
+
       - name: Generate checksums
         working-directory: assets
         run: sha256sum * > checksums.txt
-      
+
       - uses: softprops/action-gh-release@v2
         with:
           name: "Caddy + AliDNS ${{ github.ref_name }}"
-          body: |
-            ## 构建信息
-            - Caddy: `${{ github.event.inputs.caddy_version || 'v2.11.2' }}`
-            - 插件: `github.com/caddy-dns/alidns`
-            
-            ## 使用示例
-            ```caddy
-            {
-                dns alidns {
-                    access_key_id YOUR_KEY
-                    access_key_secret YOUR_SECRET
-                    region_id cn-hangzhou
-                }
-            }
-            example.com {
-                tls {
-                    dns alidns
-                }
-                respond "OK"
-            }
-            ```
+          body: "Caddy ${{ github.event.inputs.caddy_version || 'v2.11.2' }} with AliDNS plugin."
           files: assets/*
