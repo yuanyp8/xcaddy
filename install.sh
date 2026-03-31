@@ -53,6 +53,7 @@ PAYLOAD_CADDY=""
 PAYLOAD_README=""
 PAYLOAD_MANIFEST=""
 TMP_DIR=""
+MERGE_REQUIRED=0
 
 log() {
     printf '[INFO] %s\n' "$*"
@@ -301,6 +302,7 @@ safe_install_file() {
         cp "${src}" "${dst}.dist"
         chmod "${mode}" "${dst}.dist"
         chown "${owner_group}" "${dst}.dist"
+        MERGE_REQUIRED=1
         warn "检测到 ${dst} 已被修改，已生成 ${dst}.dist，请人工比较后合并。"
         return 0
     fi
@@ -313,6 +315,33 @@ safe_install_file() {
 
     install -m "${mode}" "${src}" "${dst}"
     chown "${owner_group}" "${dst}"
+}
+
+warn_legacy_site_files() {
+    local found=0
+    local legacy_file
+
+    for legacy_file in "${SITES_ENABLED_DIR}"/*.conf "${SITES_AVAIL_DIR}"/*.conf; do
+        if [[ -e "${legacy_file}" ]]; then
+            if [[ "${found}" -eq 0 ]]; then
+                warn "检测到旧版 .conf 站点文件。新版主配置默认只导入 *.caddy。"
+                found=1
+            fi
+            warn "旧站点文件: ${legacy_file}"
+        fi
+    done
+}
+
+abort_if_merge_required() {
+    if [[ "${MERGE_REQUIRED}" -eq 1 ]]; then
+        warn "当前安装未覆盖已有核心配置，新的文件已经写成 .dist。"
+        warn "本次不会继续拿旧配置做 validate/restart，避免报错混淆。"
+        warn "你可以选择："
+        warn "1. 手工对比并合并 /etc/caddy/Caddyfile.dist 和 /etc/systemd/system/caddy.service.dist"
+        warn "2. 或者确认旧配置不需要后，重新执行并追加 --force"
+        warn_legacy_site_files
+        die "检测到待合并配置，安装已安全中止。"
+    fi
 }
 
 write_text_file() {
@@ -848,6 +877,8 @@ install_action() {
         write_wildcard_site
     fi
 
+    abort_if_merge_required
+    warn_legacy_site_files
     validate_config
     enable_and_start
 
