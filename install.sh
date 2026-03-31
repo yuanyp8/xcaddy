@@ -275,9 +275,45 @@ do_install() {
     cp -f "${WORKDIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
     chmod 755 "${INSTALL_DIR}/${BIN_NAME}"
 
-    # 🚀 核心改变：不再手动写 service 文件，不再 setcap，全交给 Caddy 官方处理
-    # caddy service install 会自动创建最安全的 systemd 服务并处理端口权限
-    ${INSTALL_DIR}/${BIN_NAME} service install
+    # 赋予监听底层端口(如80/443)的系统级权限
+    setcap cap_net_bind_service=+ep "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
+    # 兼容 SELinux 系统
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -Rv "${INSTALL_DIR}/${BIN_NAME}" >/dev/null 2>&1 || true
+    fi
+
+    # 手动写入企业级 Systemd 服务文件 (因为当前二进制缺少 caddy service 命令)
+    cat > /etc/systemd/system/${SERVICE_NAME}.service << 'SERVICE_EOF'
+[Unit]
+Description=Caddy Web Server (Custom Build)
+Documentation=https://caddyserver.com/docs/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=caddy
+Group=caddy
+ExecStart=/usr/local/bin/caddy run --environ --config /etc/caddy/Caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --force
+TimeoutStopSec=5s
+LimitNOFILE=1048576
+LimitNPROC=512
+
+# 生产环境安全加固
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/caddy /var/log/caddy /var/lib/caddy
+PrivateTmp=true
+PrivateDevices=true
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+SERVICE_EOF
+
+    systemctl daemon-reload
 
     log "[4/6] 构建企业级中间件层..."
 
