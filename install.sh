@@ -267,9 +267,11 @@ do_install() {
     fi
 
     log "[2/6] 初始化系统与企业级目录环境..."
-    id -u ${SERVICE_NAME} &>/dev/null || useradd -r -s /sbin/nologin ${SERVICE_NAME}
+    # <-- MODIFIED: 不再创建 caddy 用户，直接使用 root
+    # id -u ${SERVICE_NAME} &>/dev/null || useradd -r -s /sbin/nologin ${SERVICE_NAME}
     mkdir -p "${CONF_DIR}" "${LOG_DIR}" "${DATA_DIR}" "${SNIPPETS_DIR}" "${SITES_AVAIL_DIR}" "${SITES_ENABLED_DIR}"
-    chown -R ${SERVICE_NAME}:${SERVICE_NAME} "${LOG_DIR}" "${DATA_DIR}"
+    # <-- MODIFIED: 目录属主改为 root:root
+    chown -R root:root "${LOG_DIR}" "${DATA_DIR}"
 
     log "[3/6] 部署二进制与系统服务..."
     cp -f "${WORKDIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
@@ -292,8 +294,9 @@ Wants=network-online.target
 
 [Service]
 Type=notify
-User=caddy
-Group=caddy
+# <-- MODIFIED: 使用 root 用户运行
+User=root
+Group=root
 ExecStart=/usr/local/bin/caddy run --environ --config /etc/caddy/Caddyfile
 ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --force
 TimeoutStopSec=5s
@@ -427,16 +430,10 @@ import sites-enabled/*
 EOF
 
     # 精细化配置文件权限分配 (适配 systemd ProtectSystem=strict)
-    
-    # 1. Caddyfile 含有 AK/SK，只允许 root 用户和 caddy 用户组读取 (640)
-    chown root:caddy "${CONF_DIR} -R"
+    # <-- MODIFIED: 所有文件/目录属主改为 root:root
+    chown -R root:root "${CONF_DIR}"
     chmod 755 "${CONF_DIR}/Caddyfile"
-    
-    # 2. snippets 和 sites 目录，赋予 caddy 用户组读和进入权限 (750)
-    chown -R root:caddy "${SNIPPETS_DIR}" "${SITES_AVAIL_DIR}" "${SITES_ENABLED_DIR}"
     chmod -R 750 "${SNIPPETS_DIR}" "${SITES_AVAIL_DIR}" "${SITES_ENABLED_DIR}"
-    
-    # 3. 中间件和业务配置文件本身，允许所有人读 (644)
     chmod 644 "${SNIPPETS_DIR}"/*.conf 2>/dev/null || true
     chmod 644 "${SITES_AVAIL_DIR}"/*.conf 2>/dev/null || true
 
