@@ -200,8 +200,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: always() && needs.build.result == 'success'
+    permissions:
+      contents: write                    # 创建 Release 所需权限    
     strategy:
-      fail-fast: false
+      fail-fast: false      
       matrix:
         include:
           - arch: amd64
