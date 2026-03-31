@@ -1,0 +1,107 @@
+
+name: Build Caddy with AliDNS
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      caddy_version:
+        description: 'Caddy version'
+        required: true
+        default: 'v2.11.2'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: linux
+            goarch: arm
+            goarm: "7"
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm || '' }}
+          CGO_ENABLED: 0
+        run: |
+          go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+          xcaddy build ${{ github.event.inputs.caddy_version || 'v2.11.2' }} \
+            --with github.com/caddy-dns/alidns
+          mv caddy${{ matrix.ext }} caddy-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+
+      - name: Show version
+        run: |
+          if [ "${{ matrix.goos }}" != "windows" ]; then
+            ./caddy-${{ matrix.goos }}-${{ matrix.goarch }} version
+            ./caddy-${{ matrix.goos }}-${{ matrix.goarch }} list-modules | grep ali
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: caddy-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: caddy-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      
+      - name: Generate checksums
+        working-directory: assets
+        run: sha256sum * > checksums.txt
+      
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "Caddy + AliDNS ${{ github.ref_name }}"
+          body: |
+            ## 构建信息
+            - Caddy: `${{ github.event.inputs.caddy_version || 'v2.11.2' }}`
+            - 插件: `github.com/caddy-dns/alidns`
+            
+            ## 使用示例
+            ```caddy
+            {
+                dns alidns {
+                    access_key_id YOUR_KEY
+                    access_key_secret YOUR_SECRET
+                    region_id cn-hangzhou
+                }
+            }
+            example.com {
+                tls {
+                    dns alidns
+                }
+                respond "OK"
+            }
+            ```
+          files: assets/*
+EOF
