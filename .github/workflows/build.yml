@@ -217,19 +217,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: caddy-linux-${{ matrix.arch }}
-          path: ./pack_temp/caddy
+          path: ./pack_temp
 
-      - name: Prepare package directory
+      - name: Prepare build environment
         run: |
-          mkdir -p package_content
-          mv ./pack_temp/caddy package_content/caddy
-          cp caddy.service package_content/
-          cp install.sh package_content/
-          chmod +x package_content/install.sh package_content/caddy
-          
-          # 验证一下打包进去的二进制架构是对的
-          echo "=== 待打包的二进制架构 ==="
-          file package_content/caddy
+          # 把下载的二进制重命名为 caddy，并拉取仓库里的配置文件到同一目录
+          mv ./pack_temp/caddy ./caddy
+          # caddy.service 和 install.sh、build.sh 已经通过 checkout 拉到当前目录了
 
       - name: Install makeself
         run: sudo apt-get update && sudo apt-get install -y makeself
